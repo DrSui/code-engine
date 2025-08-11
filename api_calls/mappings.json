@@ -1,6 +1,6 @@
 {
-  "validate_input": "validate_input.py",
   "do_something": "do_something.py",
-  "hourly_report": "hourly_report.py"
+  "hourly_report": "hourly_report.py",
+  "validate_input": "validate_input.py"
 }
 

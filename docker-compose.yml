@@ -26,19 +26,34 @@ services:
   worker:
     build: .
     container_name: trigger_worker
-    # include the tasks module so the worker registers the tasks defined there
     command: celery -A celery_app.celery worker --loglevel=info --concurrency=1 --include=tasks
     volumes:
       - ./:/app
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - EXECUTOR_URL=http://executor:8001/run
+    depends_on:
+      - redis
+      - executor
+    restart: unless-stopped
+
+  executor:
+    build: .
+    container_name: trigger_executor
+    command: uvicorn executor:app --host 0.0.0.0 --port 8001
+    volumes:
+      - ./:/app
+    ports:
+      - "8001:8001"
+    environment:
+      - CUSTOM_TIMEOUT_SECONDS=5
+      - CUSTOM_CPU_SECONDS=2
+      - CUSTOM_MEMORY_MB=100
     depends_on:
       - redis
     restart: unless-stopped
 
-
-  # Optional service that runs the test client once (uncomment if you want to run tests inside compose)
   client:
     build: .
     container_name: trigger_client
