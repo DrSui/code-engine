@@ -1,106 +1,79 @@
 # main.py
+import os
 import uuid
+import json
+import datetime
 from typing import List, Optional
 from enum import Enum
 from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel, Field
-import datetime
+import redis
 
 from tasks import execute_pipeline
 
 app = FastAPI(title="Trigger Pipeline API")
 
-# --- Pydantic models --------------------------------------------------------
+# Redis client (REDIS_URL configurable via env)
+REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+
+# keys will be "webhook:{token}"
+WEBHOOK_KEY_PREFIX = "webhook:"
+
 class TriggerType(str, Enum):
     webhook = "webhook"
     time = "time"
 
-
 class ScheduleMode(str, Enum):
     once = "once"
     interval = "interval"
-
 
 class TimeSchedule(BaseModel):
     mode: ScheduleMode
     at: Optional[datetime.datetime] = None
     interval_seconds: Optional[int] = None
 
-
 class TriggerNode(BaseModel):
     type: TriggerType
     schedule: Optional[TimeSchedule] = None
-
 
 class Node(BaseModel):
     id: str
     logic: str
     params: dict = {}
 
-
 class PipelineRegistration(BaseModel):
-    # NEW: flow_id is required and will be embedded in the webhook URL
     flow_id: str = Field(..., description="External flow identifier to include in webhook URL")
     trigger: TriggerNode
     nodes: List[Node]
 
+def redis_save_webhook(token: str, payload: dict):
+    key = WEBHOOK_KEY_PREFIX + token
+    redis_client.set(key, json.dumps(payload))
 
-# --- in-memory mapping so we can report webhook URLs created
-# NOTE: in production you should persist this to a database
-# token -> metadata (trigger_id, flow_id, nodes)
-WEBHOOK_REGISTRY: dict = {}
-# ----------------------------------------------------------------------------
-
+def redis_get_webhook(token: str) -> Optional[dict]:
+    key = WEBHOOK_KEY_PREFIX + token
+    raw = redis_client.get(key)
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except Exception:
+        return None
 
 @app.post("/triggers", summary="Register a trigger + nodes")
 async def register_trigger(reg: PipelineRegistration):
-    """
-    Register a trigger and its pipeline of nodes.
-
-    - For webhook triggers: returns a unique webhook URL that contains the provided flow_id.
-      When that URL receives a POST, the pipeline will be executed with the incoming JSON payload.
-    - For time triggers: schedules a Celery background job (one-off or recurring interval).
-    """
     trigger_id = uuid.uuid4().hex
 
     if reg.trigger.type == TriggerType.webhook:
-        # create a unique token and dynamic endpoint that includes the provided flow_id
+        # create token and persist metadata to redis
         token = uuid.uuid4().hex
-        # ensure flow_id is URL-safe in your environment or validate earlier
         flow_id = reg.flow_id
-        path = f"/webhook/{flow_id}/{token}"
+        meta = {"trigger_id": trigger_id, "flow_id": flow_id, "nodes": [n.dict() for n in reg.nodes]}
+        redis_save_webhook(token, meta)
 
-        # store nodes and flow_id
-        WEBHOOK_REGISTRY[token] = {
-            "trigger_id": trigger_id,
-            "flow_id": flow_id,
-            "nodes": [n.dict() for n in reg.nodes],
-        }
-
-        async def webhook_handler(request: Request, _token=token):
-            # confirm token exists (simple guard)
-            meta = WEBHOOK_REGISTRY.get(_token)
-            if not meta:
-                raise HTTPException(status_code=404, detail="Webhook not found")
-
-            try:
-                payload = await request.json()
-            except Exception:
-                payload = {}
-
-            # pass incoming payload to the same Celery task as before
-            execute_pipeline.apply_async(
-                args=[meta["nodes"], payload, {"trigger_type": "webhook", "flow_id": meta["flow_id"]}]
-            )
-            return {"status": "accepted", "trigger_id": meta["trigger_id"], "flow_id": meta["flow_id"]}
-
-        # register route dynamically if not already added
-        existing = [r.path for r in app.routes]
-        if path not in existing:
-            app.router.add_api_route(path, webhook_handler, methods=["POST"])
-
-        # return path (relative). In production return full URL including scheme/domain.
-        webhook_url = path
+        # return the stable URL; we use a static route so server restarts don't lose handlers
+        webhook_url = f"/webhook/{flow_id}/{token}"
         return {"trigger_id": trigger_id, "webhook_url": webhook_url, "flow_id": flow_id}
 
     elif reg.trigger.type == TriggerType.time:
@@ -137,4 +110,38 @@ async def register_trigger(reg: PipelineRegistration):
 
     else:
         raise HTTPException(status_code=400, detail="Unknown trigger type")
+
+
+# Single static webhook route that looks up token in Redis.
+@app.post("/webhook/{flow_id}/{token}")
+async def webhook_receiver(flow_id: str, token: str, request: Request):
+    meta = redis_get_webhook(token)
+    if not meta:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+
+    # ensure flow_id matches stored flow_id
+    if meta.get("flow_id") != flow_id:
+        raise HTTPException(status_code=400, detail="flow_id mismatch")
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    # enforce: user must not re-send nodes/trigger/flow_id during webhook invocation
+    forbidden_keys = {"nodes", "trigger", "flow_id"}
+    if isinstance(body, dict) and any(k in body for k in forbidden_keys):
+        raise HTTPException(
+            status_code=400,
+            detail="Webhook POST must not include 'nodes', 'trigger', or 'flow_id'. Register pipeline once via /triggers."
+        )
+
+    payload = body if isinstance(body, dict) else {}
+
+    # schedule celery task and pass nodes (persisted in redis) to the worker
+    nodes = meta.get("nodes", [])
+    execute_pipeline.apply_async(
+        args=[nodes, payload, {"trigger_type": "webhook", "flow_id": meta.get("flow_id")}]
+    )
+    return {"status": "accepted", "trigger_id": meta.get("trigger_id"), "flow_id": meta.get("flow_id")}
 

@@ -24,95 +24,58 @@ def wait_for(url, timeout=30, interval=1):
             return False
         time.sleep(interval)
 
-
-def test_pipeline_webhook():
-    print("\n=== Test: webhook pipeline with pass-through and custom node ===")
-    # Pipeline:
-    # 1) file-based node "do_something" -> should produce some output
-    # 2) custom node -> receives prev output (first param) and returns JSON
-    # 3) file-based node "do_something" with NO PASS THROUGH -> should NOT receive prev
-
-    # Build nodes
-    nodes = [
-        {"id": "n1", "logic": "do_something", "params": {"foo": "bar"}},
-        {
-            "id": "n2",
-            "type": "custom",
-            "logic": "custom",
-            "params": {
-                "_type": "custom",
-                "code": (
-                    "import json\n"
-                    "# 'prev', 'params', and 'payload' variables are available\n"
-                    "out = {'received_prev': prev, 'params': params}\n"
-                    "print(json.dumps(out))\n"
-                )
-            }
-        },
-        {
-            "id": "n3",
-            "logic": "do_something",
-            "params": {"extra": "value"},
-            # disable pass-through for this node (should not get prev from n2)
-            "NO PASS THROUGH": True
-        }
-    ]
-
-    payload = {"initial": "payload", "x": 1}
-    body = {
-        "flow_id": "test-flow-runner",
+def test_webhook_register_and_call():
+    print("\n--- Test: register webhook (nodes provided only once) ---")
+    registration = {
+        "flow_id": "test-flow-unique",
         "trigger": {"type": "webhook"},
-        "nodes": nodes
+        "nodes": [
+            {"id": "n1", "logic": "do_something", "params": {"foo": "bar"}},
+            {"id": "n2", "type": "custom", "logic": "custom", "params": {"_type": "custom", "code": "import json\nprint(json.dumps({'got_prev': prev, 'params': params}))"}}
+        ]
     }
-
-    r = requests.post(f"{BASE}/triggers", json=body)
-    print("register webhook response:", r.status_code, r.text)
+    r = requests.post(f"{BASE}/triggers", json=registration)
+    print("register:", r.status_code, r.text)
     data = r.json()
-    webhook_url = data.get("webhook_url")
-    if webhook_url.startswith("/"):
-        webhook_full = BASE + webhook_url
+    webhook_path = data.get("webhook_url")
+    if webhook_path.startswith("/"):
+        webhook_full = BASE + webhook_path
     else:
-        webhook_full = webhook_url
+        webhook_full = webhook_path
 
-    # call webhook with payload (this will schedule celery job)
+    # valid payload (NO nodes included)
+    print("\n-> Calling webhook with valid payload (no nodes)...")
+    payload = {"event": "order.created", "order_id": 123}
     r2 = requests.post(webhook_full, json=payload)
     print("webhook call status:", r2.status_code, r2.text)
 
+    # invalid payload (includes nodes) - should be rejected
+    print("\n-> Calling webhook with INVALID payload (contains 'nodes') - expect 400...")
+    bad_payload = {"event": "malformed", "nodes": [{"id":"bad"}]}
+    r3 = requests.post(webhook_full, json=bad_payload)
+    print("invalid webhook call status:", r3.status_code, r3.text)
 
-def test_pipeline_time_once():
-    print("\n=== Test: time trigger once (no prev pass-through across runs) ===")
-    at_time = (datetime.datetime.utcnow() + datetime.timedelta(seconds=10)).replace(microsecond=0).isoformat() + "Z"
-    nodes = [
-        {"id": "tn1", "logic": "hourly_report", "params": {}},
-        {
-            "id": "tn2",
-            "type": "custom",
-            "logic": "custom",
-            "params": {
-                "_type": "custom",
-                "code": (
-                    "import json\n"
-                    "print(json.dumps({'prev_echo': prev}))\n"
-                )
-            }
-        }
-    ]
+def test_time_trigger_once():
+    print("\n--- Test: register time trigger (once) ---")
+    at_time = (datetime.datetime.utcnow() + datetime.timedelta(seconds=15)).replace(microsecond=0).isoformat() + "Z"
     body = {
         "flow_id": "test-flow-time",
         "trigger": {"type": "time", "schedule": {"mode": "once", "at": at_time}},
-        "nodes": nodes
+        "nodes": [
+            {"id": "t1", "logic": "hourly_report", "params": {}},
+            {"id": "t2", "type": "custom", "logic": "custom", "params": {"_type": "custom", "code": "import json\nprint(json.dumps({'prev': prev}))"}}
+        ]
     }
     r = requests.post(f"{BASE}/triggers", json=body)
-    print("register time-once response:", r.status_code, r.text)
-
+    print("register time-once:", r.status_code, r.text)
 
 if __name__ == "__main__":
-    print("=== Test client for Trigger Pipeline API ===")
+    print("=== Test client ===")
     if not wait_for(f"{BASE}/openapi.json", timeout=30, interval=1):
         print("Web API didn't come up in time. Exiting.")
         sys.exit(1)
 
-    test_pipeline_webhook()
-    test_pipeline_time_once()
-    print("\nClient done. Watch worker and executor logs for execution details.")
+    test_webhook_register_and_call()
+    test_time_trigger_once()
+    print("\nClient done. Watch worker/executor logs for pipeline runs.")
 

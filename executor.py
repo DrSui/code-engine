@@ -48,10 +48,9 @@ def run_code(req: ExecRequest):
             tmp_path = tf.name
             # write imports and JSON-decoded variables
             tf.write("import json\n")
-            # pass prev/params/payload as JSON literals so user can access them
-            tf.write(f"prev = json.loads({json.dumps(json.dumps(req.prev))})\n")
-            tf.write(f"params = json.loads({json.dumps(json.dumps(req.params))})\n")
-            tf.write(f"payload = json.loads({json.dumps(json.dumps(req.payload))})\n")
+            tf.write(f"prev = json.loads({json.dumps(json.dumps(req.prev))})\n") #pass previous node output
+            tf.write(f"params = json.loads({json.dumps(json.dumps(req.params))})\n") # pass params
+            tf.write(f"payload = json.loads({json.dumps(json.dumps(req.payload))})\n") # pass the code itself
             tf.write("\n# --- user code starts ---\n")
             tf.write(code)
             tf.write("\n# --- user code ends ---\n")

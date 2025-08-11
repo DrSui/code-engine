@@ -26,7 +26,6 @@ CUSTOM_TIMEOUT = int(os.environ.get("CUSTOM_TIMEOUT_SECONDS", "5"))
 
 REQUEST_TIMEOUT = int(os.environ.get("EXECUTOR_REQUEST_TIMEOUT", "10"))  # seconds for HTTP calls to executor
 
-
 def load_mapping():
     try:
         with open(MAPPING_PATH, "r", encoding="utf-8") as fh:
@@ -183,7 +182,7 @@ def execute_pipeline(self, nodes: list, payload: dict = None, trigger_meta: dict
     Executes nodes sequentially. Passes previous node output as first positional argument into next node
     unless NO PASS THROUGH is set on the next node.
     """
-    payload = payload or {}
+    payload = payload
     trigger_meta = trigger_meta or {}
 
     prev_output = payload  # initial previous output is the incoming payload
