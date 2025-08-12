@@ -12,11 +12,10 @@ import inspect
 from typing import Any
 from celery_app import celery
 import requests
-from logger import log_node_start, log_node_output
 
 # Config: where to look for api call files and mapping file.
 API_CALLS_DIR = os.environ.get("API_CALLS_DIR", "/app/api_calls")
-MAPPING_FILENAME = os.environ.get("API_CALLS_MAPPING", "mapping.json")
+MAPPING_FILENAME = os.environ.get("API_CALLS_MAPPING", "mappings.json")
 MAPPING_PATH = os.path.join(API_CALLS_DIR, MAPPING_FILENAME)
 
 # Executor service URL (executor container)
@@ -82,21 +81,48 @@ def _execute_api_call_file(file_path: str, prev: Any, params: dict, payload: dic
     Import a python file as module and call its entrypoint.
     """
     try:
+        # Verify file exists
+        if not os.path.exists(file_path):
+            return {"ok": False, "error": f"File not found: {file_path}"}
+        
+        print(f"DEBUG: Loading file: {file_path}")
+        
+        # Read file content for debugging
+        with open(file_path, 'r') as f:
+            content = f.read()
+            print(f"DEBUG: File content length: {len(content)} chars")
+            print(f"DEBUG: First 200 chars: {content[:200]}...")
+        
         spec = importlib.util.spec_from_file_location(
             f"api_calls.exec_{int(time.time()*1000)}", file_path
         )
+        
+        if spec is None:
+            return {"ok": False, "error": f"Could not create spec for {file_path}"}
+        
         module = importlib.util.module_from_spec(spec)
         loader = spec.loader
+        
         if loader is None:
-            raise ImportError("no loader for spec")
+            return {"ok": False, "error": "no loader for spec"}
+        
+        print("DEBUG: Executing module...")
         loader.exec_module(module)
+        print("DEBUG: Module executed successfully")
+        
+        # Show what's available in the module
+        module_attrs = [attr for attr in dir(module) if not attr.startswith('_')]
+        print(f"DEBUG: Module attributes: {module_attrs}")
 
         result = _call_module_callable(module, prev, params, payload)
+        print(f"DEBUG: Function call result: {result}")
+        
         return {"ok": True, "result": result}
     except Exception as e:
+        error_msg = f"Error in _execute_api_call_file: {e}"
+        print(error_msg)
+        print(f"DEBUG: Full traceback: {traceback.format_exc()}")
         return {"ok": False, "error": str(e), "traceback": traceback.format_exc()}
-
-
 def _call_executor_service(code_str: str, prev: Any, params: dict, payload: dict):
     """
     Send code + context to the executor container via HTTP. Executor runs code and returns JSON.
@@ -195,13 +221,11 @@ def execute_pipeline(self, nodes: list, payload: dict = None, trigger_meta: dict
             params = node.get("params", {}) or {}
             # node_meta can include tags or direct flags
             node_meta = node
-            log_node_start(node_id, logic_name, params)
             # Support backward-compatible inline type marker
             if node.get("type") == "custom":
                 logic_name = "custom"
 
             res = run_logic(logic_name, params, payload, prev_output, node_meta=node_meta)
-            log_node_output(node_id, res)
             results.append({"node_id": node_id, "logic": logic_name, "result": res})
 
             # Determine what becomes prev_output for next node:

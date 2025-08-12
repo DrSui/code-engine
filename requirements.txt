@@ -5,4 +5,3 @@ celery[redis]
 redis
 python-dotenv
 requests
-rich
