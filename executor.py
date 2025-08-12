@@ -54,7 +54,7 @@ def run_code(req: ExecRequest):
             tf.write("\n# --- user code starts ---\n")
             tf.write(code)
             tf.write("\n# --- user code ends ---\n")
-
+            tf.close()
         cmd = [sys.executable, tmp_path]
         try:
             completed = subprocess.run(
@@ -87,7 +87,6 @@ def run_code(req: ExecRequest):
         stderr = completed.stderr or ""
         returncode = completed.returncode
 
-        parsed = None
         try:
             parsed = json.loads(stdout)
         except Exception:

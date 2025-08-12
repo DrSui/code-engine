@@ -12,6 +12,7 @@ import inspect
 from typing import Any
 from celery_app import celery
 import requests
+from logger import log_node_start, log_node_output
 
 # Config: where to look for api call files and mapping file.
 API_CALLS_DIR = os.environ.get("API_CALLS_DIR", "/app/api_calls")
@@ -194,12 +195,13 @@ def execute_pipeline(self, nodes: list, payload: dict = None, trigger_meta: dict
             params = node.get("params", {}) or {}
             # node_meta can include tags or direct flags
             node_meta = node
-
+            log_node_start(node_id, logic_name, params)
             # Support backward-compatible inline type marker
             if node.get("type") == "custom":
                 logic_name = "custom"
 
             res = run_logic(logic_name, params, payload, prev_output, node_meta=node_meta)
+            log_node_output(node_id, res)
             results.append({"node_id": node_id, "logic": logic_name, "result": res})
 
             # Determine what becomes prev_output for next node:
