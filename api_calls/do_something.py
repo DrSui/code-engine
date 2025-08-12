@@ -2,7 +2,6 @@ import requests
 
 def run(prev, params, payload):
     # prev may be a dict or anything returned by previous node
-    print("IT WORKS WOOOOOOOOOOOOOOOOOOOOOOOOOO")
     webhook_url = 'https://webhook.site/b380a2ea-f52e-4559-9356-ea7e7ace548e'
 
 # Data to send in the POST request body (can be any JSON content)
