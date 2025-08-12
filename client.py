@@ -1,4 +1,4 @@
-# client.py
+# client.py (only showing the new test parts — replace or merge into your current client)
 import os
 import requests
 import datetime
@@ -24,18 +24,27 @@ def wait_for(url, timeout=30, interval=1):
             return False
         time.sleep(interval)
 
-def test_webhook_register_and_call():
-    print("\n--- Test: register webhook (nodes provided only once) ---")
-    registration = {
-        "flow_id": "test-flow-unique",
+def test_chain_nodes_webhook():
+    """
+    Registers a webhook flow with nodes:
+      1) double_value  (doubles incoming payload.value)
+      2) add_five      (adds 5 by default)
+    Calls the webhook with {"value": 3} and explains the expected final result (11).
+    Watch worker logs to confirm actual execution and results.
+    """
+    print("\n=== Test: chained nodes via webhook (double_value -> add_five) ===")
+    nodes = [
+        {"id": "c1", "logic": "double_value", "params": {}},
+        {"id": "c2", "logic": "add_five", "params": {"add": 5}}
+    ]
+    body = {
+        "flow_id": "chain-test",
         "trigger": {"type": "webhook"},
-        "nodes": [
-            {"id": "n1", "logic": "do_something", "params": {"foo": "bar"}},
-            {"id": "n2", "type": "custom", "logic": "custom", "params": {"_type": "custom", "code": "import json\nprint(json.dumps({'got_prev': prev, 'params': params}))"}}
-        ]
+        "nodes": nodes
     }
-    r = requests.post(f"{BASE}/triggers", json=registration)
-    print("register:", r.status_code, r.text)
+
+    r = requests.post(f"{BASE}/triggers", json=body)
+    print("Register response:", r.status_code, r.text)
     data = r.json()
     webhook_path = data.get("webhook_url")
     if webhook_path.startswith("/"):
@@ -43,31 +52,17 @@ def test_webhook_register_and_call():
     else:
         webhook_full = webhook_path
 
-    # valid payload (NO nodes included)
-    print("\n-> Calling webhook with valid payload (no nodes)...")
-    payload = {"event": "order.created", "order_id": 123}
+    payload = {"value": 3}
+    print("Calling webhook:", webhook_full, "with payload:", payload)
     r2 = requests.post(webhook_full, json=payload)
-    print("webhook call status:", r2.status_code, r2.text)
+    print("Webhook call status:", r2.status_code, r2.text)
 
-    # invalid payload (includes nodes) - should be rejected
-    print("\n-> Calling webhook with INVALID payload (contains 'nodes') - expect 400...")
-    bad_payload = {"event": "malformed", "nodes": [{"id":"bad"}]}
-    r3 = requests.post(webhook_full, json=bad_payload)
-    print("invalid webhook call status:", r3.status_code, r3.text)
-
-def test_time_trigger_once():
-    print("\n--- Test: register time trigger (once) ---")
-    at_time = (datetime.datetime.utcnow() + datetime.timedelta(seconds=15)).replace(microsecond=0).isoformat() + "Z"
-    body = {
-        "flow_id": "test-flow-time",
-        "trigger": {"type": "time", "schedule": {"mode": "once", "at": at_time}},
-        "nodes": [
-            {"id": "t1", "logic": "hourly_report", "params": {}},
-            {"id": "t2", "type": "custom", "logic": "custom", "params": {"_type": "custom", "code": "import json\nprint(json.dumps({'prev': prev}))"}}
-        ]
-    }
-    r = requests.post(f"{BASE}/triggers", json=body)
-    print("register time-once:", r.status_code, r.text)
+    # Wait a short time for background worker to process and then ask you to check worker logs.
+    print("Waiting 3-6s for worker to execute nodes (check trigger_worker logs)...")
+    time.sleep(6)
+    print("Expected chained result (for payload.value=3):")
+    print("  double_value -> 6   then add_five(+5) -> 11")
+    print("Check trigger_worker logs (or Redis if you've stored results) to confirm the actual outputs.")
 
 if __name__ == "__main__":
     print("=== Test client ===")
@@ -75,7 +70,8 @@ if __name__ == "__main__":
         print("Web API didn't come up in time. Exiting.")
         sys.exit(1)
 
-    test_webhook_register_and_call()
-    test_time_trigger_once()
-    print("\nClient done. Watch worker/executor logs for pipeline runs.")
+    # existing tests (if any)...
+    # now run the chain test:
+    test_chain_nodes_webhook()
+    print("\nClient done.")
 

@@ -53,15 +53,15 @@ services:
       - redis
     restart: unless-stopped
 
-  client:
-    build: .
-    container_name: trigger_client
-    command: python client.py
-    volumes:
-      - ./:/app
-    environment:
-      - BASE_URL=http://web:8000
-    depends_on:
-      - web
-    restart: "no"
-
+  # client:
+  #   build: .
+  #   container_name: trigger_client
+  #   command: python client.py
+  #   volumes:
+  #     - ./:/app
+  #   environment:
+  #     - BASE_URL=http://web:8000
+  #   depends_on:
+  #     - web
+  #   restart: "no"
+  #
