@@ -1,14 +1,15 @@
 #!/bin/sh
-# start-executor.sh
-# Ensure permissive umask so the created UDS socket is world-writable (DEV use only).
-# In production you should create a group for communication and set group permissions instead.
-umask 000
+# start-executor.sh - ensure socket dir exists and has permissive perms, then start uvicorn on UDS
 
-# Ensure the socket directory exists
+# make sure the socket dir exists (runs as whichever user the container starts as)
 mkdir -p /tmp/executor_sock
-# Remove stale socket (safe to ignore errors)
+
+# remove stale socket if present (ignore errors)
 [ -S /tmp/executor_sock/executor.sock ] && rm -f /tmp/executor_sock/executor.sock
 
-# Start uvicorn listening on a UDS path
+# make the directory world-writable (dev convenience)
+chmod 0777 /tmp/executor_sock
+
+# start uvicorn on the UDS
 exec uvicorn executor:app --uds /tmp/executor_sock/executor.sock --host 0.0.0.0 --log-level info
 

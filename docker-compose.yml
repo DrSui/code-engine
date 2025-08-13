@@ -1,4 +1,5 @@
 services:
+
   redis:
     image: redis:7-alpine
     container_name: trigger_redis
@@ -9,14 +10,18 @@ services:
   web:
     build: .
     container_name: trigger_web
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    user: "1000:1000"
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     volumes:
       - ./:/app
     ports:
       - "8000:8000"
     environment:
+      - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - API_CALLS_DIR=/app/api_calls
+      - API_CALLS_MAPPING=mappings.json
     depends_on:
       - redis
     restart: unless-stopped
@@ -24,16 +29,17 @@ services:
   executor:
     build: .
     container_name: trigger_executor
-    # Use the start wrapper that sets umask then runs uvicorn on a UDS
-    command: ["./start-executor.sh"]
+    command: ["sh", "-c", "/app/start-executor.sh"]
+    # DO NOT set user here - we want root to create the socket dir and set perms
     volumes:
       - ./:/app
-      - executor_sock:/tmp/executor_sock   # shared sock directory
-    # no need to expose ports for UDS
+      - executor_sock:/tmp/executor_sock
     environment:
+      - REDIS_URL=redis://redis:6379/0
       - CUSTOM_TIMEOUT_SECONDS=5
       - CUSTOM_CPU_SECONDS=2
       - CUSTOM_MEMORY_MB=100
+      - EXECUTOR_POOL_WORKERS=3
     depends_on:
       - redis
     restart: unless-stopped
@@ -41,15 +47,23 @@ services:
   worker:
     build: .
     container_name: trigger_worker
-    command: celery -A celery_app.celery worker --loglevel=info --concurrency=1 --include=tasks
+    user: "1000:1000"
+    # include tasks so celery registers execute_pipeline
+    command: ["celery", "-A", "celery_app.celery", "worker", "--loglevel=info", "--concurrency=1", "--include=tasks"]
     volumes:
       - ./:/app
-      - executor_sock:/tmp/executor_sock   # mount same volume to access socket
+      - executor_sock:/tmp/executor_sock
     environment:
-      - EXECUTOR_URL=unix:///tmp/executor_sock/executor.sock
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - EXECUTOR_URL=unix:///tmp/executor_sock/executor.sock
+      - API_CALLS_DIR=/app/api_calls
+      - API_CALLS_MAPPING=mappings.json
+      - CUSTOM_TIMEOUT_SECONDS=5
+      - CUSTOM_CPU_SECONDS=2
+      - CUSTOM_MEMORY_MB=100
+      - EXECUTOR_POOL_WORKERS=3
     depends_on:
       - redis
       - executor
@@ -57,7 +71,9 @@ services:
 
 volumes:
   executor_sock:
-    # client:
+    driver: local
+
+  # client:
   #   build: .
   #   container_name: trigger_client
   #   command: python client.py

@@ -218,7 +218,7 @@ def run_logic(logic_name: str, params: dict, payload: dict, prev_output: Any, no
     # detect NO PASS THROUGH
     no_pass = False
     if node_meta:
-        if node_meta.get("NO PASS THROUGH") is True or node_meta.get("no_pass_through") is True:
+        if node_meta.get("NO PASS THROUGH") is True:
             no_pass = True
         tags = node_meta.get("tags")
         if isinstance(tags, list) and "NO PASS THROUGH" in tags:

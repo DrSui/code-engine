@@ -23,7 +23,6 @@ def wait_for(url, timeout=30, interval=1):
             print("Timeout waiting for service.")
             return False
         time.sleep(interval)
-
 def test_chain_nodes_webhook():
     """
     Registers a webhook flow with nodes:
@@ -35,7 +34,8 @@ def test_chain_nodes_webhook():
     print("\n=== Test: chained nodes via webhook (double_value -> add_five) ===")
     nodes = [
         {"id": "c1", "logic": "double_value", "params": {}},
-        {"id": "c2", "logic": "add_five", "params": {"add": 5}}
+        {"id": "c2", "logic": "add_five", "params": {"add": 5}},
+        {"id": "c3", "logic": "do_something", "params": {"add": 5}, "NO PASS THROUGH":True}
     ]
     body = {
         "flow_id": "chain-test",
