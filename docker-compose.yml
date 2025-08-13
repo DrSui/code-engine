@@ -21,30 +21,15 @@ services:
       - redis
     restart: unless-stopped
 
-  worker:
-    build: .
-    container_name: trigger_worker
-    command: celery -A celery_app.celery worker --loglevel=info --concurrency=1 --include=tasks
-    volumes:
-      - ./api_calls:/app/api_calls
-      - ./:/app      
-    environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - EXECUTOR_URL=http://executor:8001/run
-    depends_on:
-      - redis
-      - executor
-    restart: unless-stopped
-
   executor:
     build: .
     container_name: trigger_executor
-    command: uvicorn executor:app --host 0.0.0.0 --port 8001
+    # Use the start wrapper that sets umask then runs uvicorn on a UDS
+    command: ["./start-executor.sh"]
     volumes:
       - ./:/app
-    ports:
-      - "8001:8001"
+      - executor_sock:/tmp/executor_sock   # shared sock directory
+    # no need to expose ports for UDS
     environment:
       - CUSTOM_TIMEOUT_SECONDS=5
       - CUSTOM_CPU_SECONDS=2
@@ -53,7 +38,26 @@ services:
       - redis
     restart: unless-stopped
 
-  # client:
+  worker:
+    build: .
+    container_name: trigger_worker
+    command: celery -A celery_app.celery worker --loglevel=info --concurrency=1 --include=tasks
+    volumes:
+      - ./:/app
+      - executor_sock:/tmp/executor_sock   # mount same volume to access socket
+    environment:
+      - EXECUTOR_URL=unix:///tmp/executor_sock/executor.sock
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+      - executor
+    restart: unless-stopped
+
+volumes:
+  executor_sock:
+    # client:
   #   build: .
   #   container_name: trigger_client
   #   command: python client.py

@@ -17,3 +17,8 @@ celery.conf.update(
     timezone="UTC",
     enable_utc=True,
 )
+
+# celery_app.conf
+celery.conf.worker_prefetch_multiplier = 1
+celery.conf.task_acks_late = True
+# celery.conf.worker_max_tasks_per_child = 100

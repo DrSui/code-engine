@@ -24,5 +24,5 @@ def run(prev, params, payload):
     if (isinstance(base, int) or isinstance(add_amount, int)) and float(new_val).is_integer():
         new_val = int(new_val)
 
-    return {"value": new_val, "added": add_num}
+    return {"value": new_val, "added": add_num, "prev":prev}
 

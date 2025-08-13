@@ -5,3 +5,5 @@ celery[redis]
 redis
 python-dotenv
 requests
+requests-unixsocket
+

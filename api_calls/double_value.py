@@ -20,7 +20,7 @@ def run(prev, params, payload):
         # If it was integer-like, return int
         if isinstance(v, int) or (isinstance(v, float) and v.is_integer()):
             doubled = int(doubled)
-        return {"value": doubled, "note": "doubled"}
+        return {"value": doubled, "note": "doubled", "prev":prev}
     except Exception as e:
         return {"error": f"invalid numeric value: {e}"}
 
